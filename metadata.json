@@ -1,0 +1,8 @@
+{
+  "name": "AgriConnect Pro",
+  "description": "A professional networking platform exclusively for farmers, agronomists, and agri-business stakeholders, featuring real-time messaging, expert networking, and job opportunities.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

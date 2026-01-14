@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user owns the document
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    // Users collection - users can read all, but only update their own
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwner(userId);
+      allow update: if isAuthenticated() && isOwner(userId);
+      allow delete: if false; // Prevent deletion
+    }
+    
+    // Posts collection - all authenticated users can read and create
+    match /posts/{postId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && isOwner(resource.data.authorId);
+      allow delete: if isAuthenticated() && isOwner(resource.data.authorId);
+    }
+    
+    // Comments collection
+    match /comments/{commentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && isOwner(resource.data.authorId);
+      allow delete: if isAuthenticated() && isOwner(resource.data.authorId);
+    }
+    
+    // Connections collection
+    match /connections/{connectionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && 
+        (isOwner(resource.data.requesterId) || isOwner(resource.data.receiverId));
+      allow delete: if isAuthenticated() && 
+        (isOwner(resource.data.requesterId) || isOwner(resource.data.receiverId));
+    }
+    
+    // Messages collection - only sender and receiver can access
+    match /messages/{messageId} {
+      allow read: if isAuthenticated() && 
+        (isOwner(resource.data.senderId) || isOwner(resource.data.receiverId));
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && 
+        (isOwner(resource.data.senderId) || isOwner(resource.data.receiverId));
+      allow delete: if isAuthenticated() && 
+        (isOwner(resource.data.senderId) || isOwner(resource.data.receiverId));
+    }
+    
+    // Jobs collection
+    match /jobs/{jobId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && isOwner(resource.data.authorId);
+      allow delete: if isAuthenticated() && isOwner(resource.data.authorId);
+    }
+    
+    // Notifications collection - users can only access their own
+    match /notifications/{notifId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && isOwner(resource.data.userId);
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // Likes collection
+    match /likes/{likeId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+    
+    // Saved Jobs collection - users can only access their own
+    match /savedJobs/{savedJobId} {
+      allow read: if isAuthenticated() && isOwner(resource.data.userId);
+      allow create: if isAuthenticated();
+      allow delete: if isAuthenticated() && isOwner(resource.data.userId);
+    }
+  }
+}
