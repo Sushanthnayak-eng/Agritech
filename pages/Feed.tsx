@@ -25,7 +25,14 @@ const Feed: React.FC<{ currentUser: User }> = ({ currentUser }) => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const postsData: Post[] = [];
       snapshot.forEach((doc) => {
-        postsData.push({ ...doc.data(), id: doc.id } as Post);
+        const data = doc.data();
+        postsData.push({
+          ...data,
+          id: doc.id,
+          likesCount: data.likesCount || 0,
+          commentsCount: data.commentsCount || 0,
+          repostsCount: data.repostsCount || 0
+        } as Post);
       });
       // Sort in-memory to avoid index requirement
       postsData.sort((a, b) => b.timestamp - a.timestamp);

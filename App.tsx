@@ -21,7 +21,8 @@ import Messaging from './pages/Messaging';
 import Jobs from './pages/Jobs';
 import Auth from './pages/Auth';
 import Network from './pages/Network';
-import { Camera, Edit2, Check, X, Bell, User as UserIcon, Heart, MessageSquare, UserPlus, Briefcase, MapPin, Layout, MessageCircle } from 'lucide-react';
+import SearchResults from './pages/SearchResults';
+import { Camera, Edit2, Check, X, Bell, User as UserIcon, Heart, MessageSquare, UserPlus, Briefcase, MapPin, Layout, MessageCircle, Repeat } from 'lucide-react';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -31,6 +32,7 @@ const App: React.FC = () => {
   const [editForm, setEditForm] = useState<Partial<User>>({});
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [selectedChatUserId, setSelectedChatUserId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Listen for auth state changes and user profile updates
   useEffect(() => {
@@ -157,6 +159,7 @@ const App: React.FC = () => {
     }
   };
 
+
   useEffect(() => {
     if (activeTab === 'notifications') {
       markNotificationsAsRead();
@@ -180,13 +183,20 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-agri-light pb-10">
-      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} currentUser={currentUser} />
+      <Navbar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        currentUser={currentUser}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+      />
 
       <main className="container mx-auto pt-14">
         {activeTab === 'feed' && <Feed currentUser={currentUser} />}
         {activeTab === 'messaging' && <Messaging currentUser={currentUser} selectedChatUserId={selectedChatUserId} setSelectedChatUserId={setSelectedChatUserId} />}
         {activeTab === 'jobs' && <Jobs currentUser={currentUser} setActiveTab={setActiveTab} setSelectedChatUserId={setSelectedChatUserId} />}
         {activeTab === 'network' && <Network currentUser={currentUser} />}
+        {activeTab === 'search' && <SearchResults searchQuery={searchQuery} currentUser={currentUser} />}
 
         {activeTab === 'notifications' && (
           <div className="max-w-2xl mx-auto mt-6 bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
@@ -276,9 +286,9 @@ const App: React.FC = () => {
 
                   <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                      <p className="text-[10px] text-slate-400 uppercase font-black mb-3 tracking-widest flex items-center gap-2">
+                      <div className="text-[10px] text-slate-400 uppercase font-black mb-3 tracking-widest flex items-center gap-2">
                         <div className="w-1 h-3 bg-agri-green rounded-full"></div> Crops Grown
-                      </p>
+                      </div>
                       <div className="flex flex-wrap gap-2">
                         {currentUser.cropsGrown.length > 0 ? currentUser.cropsGrown.map(c => (
                           <span key={c} className="bg-agri-green/10 text-agri-green px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider">{c}</span>
@@ -286,9 +296,9 @@ const App: React.FC = () => {
                       </div>
                     </div>
                     <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                      <p className="text-[10px] text-slate-400 uppercase font-black mb-3 tracking-widest flex items-center gap-2">
+                      <div className="text-[10px] text-slate-400 uppercase font-black mb-3 tracking-widest flex items-center gap-2">
                         <div className="w-1 h-3 bg-blue-500 rounded-full"></div> Land Detail
-                      </p>
+                      </div>
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
                           <Layout className="w-5 h-5 text-blue-500" />
@@ -404,6 +414,7 @@ const NotificationItem: React.FC<{
         break;
       case 'like':
       case 'comment':
+      case 'repost':
         setActiveTab('feed');
         // In a more advanced version, we could scroll to the specific post using notification.linkId
         break;
@@ -432,6 +443,7 @@ const NotificationItem: React.FC<{
       case 'connection_request': return <UserPlus className="w-5 h-5 text-green-500" />;
       case 'job_alert': return <Briefcase className="w-5 h-5 text-agri-green" />;
       case 'message': return <MessageCircle className="w-5 h-5 text-blue-500" />;
+      case 'repost': return <Repeat className="w-5 h-5 text-agri-green" />;
       default: return <Bell className="w-5 h-5 text-slate-400" />;
     }
   };

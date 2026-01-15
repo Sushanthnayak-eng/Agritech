@@ -1,3 +1,11 @@
+@import "tailwindcss";
+
+@theme {
+    --color-agri-green: #2D5A27;
+    --color-agri-light: #F0F4EF;
+    --color-linkedin-blue: #0a66c2;
+}
+
 :root {
     --agri-green: #2D5A27;
     --agri-light: #F0F4EF;
@@ -5,4 +13,5 @@
 
 body {
     font-family: 'Inter', sans-serif;
+    @apply bg-agri-light text-slate-900;
 }

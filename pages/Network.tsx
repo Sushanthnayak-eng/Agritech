@@ -47,23 +47,33 @@ const Network: React.FC<NetworkProps> = ({ currentUser }) => {
     const q1 = query(connectionsCollection, where('requesterId', '==', currentUser.id));
     const q2 = query(connectionsCollection, where('receiverId', '==', currentUser.id));
 
-    // Subscribe to both queries
-    const unsubscribe1 = onSnapshot(q1, async (snapshot1) => {
-      const snapshot2 = await getDocs(q2);
-      const allConnections: Connection[] = [];
+    let connections1: Connection[] = [];
+    let connections2: Connection[] = [];
 
-      snapshot1.forEach((doc) => {
-        allConnections.push({ ...doc.data(), id: doc.id } as Connection);
+    const updateAll = () => {
+      const merged = [...connections1];
+      connections2.forEach(c2 => {
+        if (!merged.find(m => m.id === c2.id)) {
+          merged.push(c2);
+        }
       });
+      setConnections(merged);
+    };
 
-      snapshot2.forEach((doc) => {
-        allConnections.push({ ...doc.data(), id: doc.id } as Connection);
-      });
-
-      setConnections(allConnections);
+    const unsubscribe1 = onSnapshot(q1, (snapshot) => {
+      connections1 = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Connection));
+      updateAll();
     });
 
-    return () => unsubscribe1();
+    const unsubscribe2 = onSnapshot(q2, (snapshot) => {
+      connections2 = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Connection));
+      updateAll();
+    });
+
+    return () => {
+      unsubscribe1();
+      unsubscribe2();
+    };
   }, [currentUser.id]);
 
   const handleConnect = async (receiverId: string) => {
@@ -104,16 +114,33 @@ const Network: React.FC<NetworkProps> = ({ currentUser }) => {
 
   const handleAccept = async (connectionId: string) => {
     try {
-      const connDoc = await getDoc(doc(connectionsCollection, connectionId));
+      const connRef = doc(connectionsCollection, connectionId);
+      const connDoc = await getDoc(connRef);
       if (!connDoc.exists()) return;
 
       const conn = connDoc.data() as Connection;
-      await updateDoc(doc(connectionsCollection, connectionId), { status: 'accepted' });
 
-      // Notification for acceptance
-      const notifRef = doc(notificationsCollection, crypto.randomUUID());
-      const notif: Notification = {
-        id: notifRef.id,
+      // 1. Update connection status
+      await updateDoc(connRef, { status: 'accepted' });
+
+      // 2. Clear notifications for the current user
+      // We do this individually to avoid potential batch/permission edge cases
+      const notifQuery = query(
+        notificationsCollection,
+        where('userId', '==', currentUser.id),
+        where('actorId', '==', conn.requesterId),
+        where('type', '==', 'connection_request')
+      );
+
+      const notifSnapshot = await getDocs(notifQuery);
+      for (const nDoc of notifSnapshot.docs) {
+        await updateDoc(doc(notificationsCollection, nDoc.id), { isRead: true });
+      }
+
+      // 3. Send acceptance notification to the original requester
+      const notifId = crypto.randomUUID();
+      const acceptanceNotif: Notification = {
+        id: notifId,
         userId: conn.requesterId,
         actorId: currentUser.id,
         type: 'connection_request',
@@ -121,9 +148,13 @@ const Network: React.FC<NetworkProps> = ({ currentUser }) => {
         isRead: false,
         timestamp: Date.now()
       };
-      await setDoc(notifRef, notif);
+
+      await setDoc(doc(notificationsCollection, notifId), acceptanceNotif);
+
+      console.log('Connection accepted and notifications handled.');
     } catch (error) {
       console.error('Error accepting connection:', error);
+      alert('Failed to accept connection. Please check your internet or try again.');
     }
   };
 
@@ -248,6 +279,7 @@ const InvitationRow: React.FC<{
   onIgnore: (id: string) => void
 }> = ({ connection, onAccept, onIgnore }) => {
   const [sender, setSender] = useState<User | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     const fetchSender = async () => {
@@ -261,8 +293,24 @@ const InvitationRow: React.FC<{
 
   if (!sender) return null;
 
+  const handleAction = async (action: 'accept' | 'ignore') => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    try {
+      if (action === 'accept') {
+        await onAccept(connection.id);
+      } else {
+        await onIgnore(connection.id);
+      }
+    } catch (error) {
+      console.error('Action failed:', error);
+      setIsProcessing(false);
+    }
+    // Note: if successful, component unmounts so reset is optional
+  };
+
   return (
-    <div className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+    <div className={`p-4 flex items-center justify-between hover:bg-slate-50 transition-colors ${isProcessing ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
       <div className="flex gap-3 items-center">
         <img src={sender.profilePhoto || 'https://via.placeholder.com/150'} className="w-14 h-14 rounded-full object-cover bg-white border border-slate-100" alt={sender.name} />
         <div>
@@ -273,16 +321,18 @@ const InvitationRow: React.FC<{
       </div>
       <div className="flex gap-2">
         <button
-          onClick={() => onIgnore(connection.id)}
-          className="text-slate-500 font-bold text-xs hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors"
+          onClick={() => handleAction('ignore')}
+          disabled={isProcessing}
+          className="text-slate-500 font-bold text-xs hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors disabled:opacity-50"
         >
           Ignore
         </button>
         <button
-          onClick={() => onAccept(connection.id)}
-          className="bg-agri-green text-white font-bold text-xs hover:bg-green-800 px-5 py-1.5 rounded-full shadow-sm transition-all active:scale-95"
+          onClick={() => handleAction('accept')}
+          disabled={isProcessing}
+          className="bg-agri-green text-white font-bold text-xs hover:bg-green-800 px-5 py-1.5 rounded-full shadow-sm transition-all active:scale-95 disabled:opacity-50"
         >
-          Accept
+          {isProcessing ? 'Processing...' : 'Accept'}
         </button>
       </div>
     </div>

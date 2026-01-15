@@ -27,6 +27,9 @@ export interface Post {
   timestamp: number;
   likesCount: number;
   commentsCount: number;
+  repostsCount?: number;
+  originalPostId?: string;
+  repostedBy?: string;
 }
 
 export interface Comment {
@@ -77,7 +80,7 @@ export interface Notification {
   id: string;
   userId: string; // recipient
   actorId: string; // person who triggered it
-  type: 'connection_request' | 'like' | 'comment' | 'message' | 'invitation' | 'job_alert';
+  type: 'connection_request' | 'like' | 'comment' | 'message' | 'invitation' | 'job_alert' | 'repost';
   content: string;
   isRead: boolean;
   timestamp: number;
