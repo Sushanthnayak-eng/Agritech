@@ -20,14 +20,18 @@ const Feed: React.FC<{ currentUser: User }> = ({ currentUser }) => {
 
   // Real-time posts listener
   useEffect(() => {
-    const q = query(postsCollection, orderBy('timestamp', 'desc'));
+    const q = query(postsCollection);
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const postsData: Post[] = [];
       snapshot.forEach((doc) => {
         postsData.push({ ...doc.data(), id: doc.id } as Post);
       });
+      // Sort in-memory to avoid index requirement
+      postsData.sort((a, b) => b.timestamp - a.timestamp);
       setPosts(postsData);
+    }, (error) => {
+      console.error("Error listening to posts:", error);
     });
 
     return () => unsubscribe();
@@ -69,7 +73,7 @@ const Feed: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-[250px_1fr_280px] gap-6 mt-20 px-4">
+    <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-[250px_1fr] gap-6 mt-20 px-4">
       {/* Profile Summary Sidebar */}
       <div className="hidden md:block">
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm sticky top-20">
@@ -183,26 +187,6 @@ const Feed: React.FC<{ currentUser: User }> = ({ currentUser }) => {
               </button>
             </div>
           )}
-        </div>
-      </div>
-
-      {/* Sidebar Right: News/Trends */}
-      <div className="hidden lg:block">
-        <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm sticky top-20">
-          <h3 className="font-bold text-slate-800 text-sm mb-4">AgriConnect Trends</h3>
-          <div className="space-y-5">
-            <div className="group cursor-pointer">
-              <p className="text-[13px] font-bold text-slate-700 group-hover:text-agri-green transition-colors">Weather: Post-monsoon Advisory</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Community Discussion • 420 active</p>
-            </div>
-            <div className="group cursor-pointer">
-              <p className="text-[13px] font-bold text-slate-700 group-hover:text-agri-green transition-colors">Market Watch: Fertilizer Price Index</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Market Insights • Real-time data</p>
-            </div>
-          </div>
-          <div className="mt-6 pt-4 border-t border-slate-50 text-[11px] text-slate-400 text-center">
-            AgriConnect Pro © 2024
-          </div>
         </div>
       </div>
     </div>

@@ -16,15 +16,18 @@ import {
   onSnapshot
 } from '../db/firebase';
 import { Job, User, SavedJob, Notification } from '../types';
-import { Briefcase, MapPin, Search, Bell, Bookmark, Plus, X, CheckCircle, Info, ChevronRight } from 'lucide-react';
+import { Briefcase, MapPin, Search, Bell, Bookmark, Plus, X, CheckCircle, Info, ChevronRight, Layout, Clock, DollarSign } from 'lucide-react';
 
 interface JobsProps {
   currentUser: User;
+  setActiveTab: (tab: string) => void;
+  setSelectedChatUserId: (id: string | null) => void;
 }
 
-const Jobs: React.FC<JobsProps> = ({ currentUser }) => {
-  const [filter, setFilter] = useState<'recommended' | 'my-jobs' | 'saved'>('recommended');
+const Jobs: React.FC<JobsProps> = ({ currentUser, setActiveTab, setSelectedChatUserId }) => {
+  const [filter, setFilter] = useState<'latest' | 'recommended' | 'my-jobs' | 'saved'>('latest');
   const [showPostModal, setShowPostModal] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [allJobs, setAllJobs] = useState<Job[]>([]);
   const [savedJobRecords, setSavedJobRecords] = useState<SavedJob[]>([]);
@@ -32,15 +35,30 @@ const Jobs: React.FC<JobsProps> = ({ currentUser }) => {
     type: 'Full-time',
   });
 
+  const handleContactPoster = async (job: Job) => {
+    if (job.authorId === currentUser.id) {
+      alert("You cannot message yourself about your own job.");
+      return;
+    }
+
+    // Prepare to chat
+    setSelectedChatUserId(job.authorId);
+    setActiveTab('messaging');
+  };
+
   // Fetch all jobs with real-time updates
   useEffect(() => {
-    const q = query(jobsCollection, orderBy('postedAt', 'desc'));
+    const q = query(jobsCollection);
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const jobs: Job[] = [];
       snapshot.forEach((doc) => {
         jobs.push({ ...doc.data(), id: doc.id } as Job);
       });
+      // Sort in-memory to avoid index requirement
+      jobs.sort((a, b) => b.postedAt - a.postedAt);
       setAllJobs(jobs);
+    }, (error) => {
+      console.error("Error listening to jobs:", error);
     });
 
     return () => unsubscribe();
@@ -63,12 +81,12 @@ const Jobs: React.FC<JobsProps> = ({ currentUser }) => {
   const savedJobsList = allJobs.filter(j => savedJobRecords.some(sj => sj.jobId === j.id));
   const myJobsList = allJobs.filter(j => j.authorId === currentUser.id);
 
-  // Basic Recommendation Engine: Matches location or crops grown
+  // Recommendation logic
   const recommendedJobs = allJobs.filter(job => {
     const jobText = (job.title + job.company + job.description + (job.cropFocus || "")).toLowerCase();
     const userLoc = currentUser.location?.toLowerCase() || "";
 
-    const matchesLocation = job.location.toLowerCase().includes(userLoc);
+    const matchesLocation = userLoc && userLoc !== 'not specified' && job.location.toLowerCase().includes(userLoc);
     const matchesCrops = currentUser.cropsGrown.some(crop =>
       jobText.includes(crop.toLowerCase())
     );
@@ -88,7 +106,8 @@ const Jobs: React.FC<JobsProps> = ({ currentUser }) => {
   const displayJobs =
     filter === 'my-jobs' ? filteredJobs(myJobsList) :
       filter === 'saved' ? filteredJobs(savedJobsList) :
-        filteredJobs(recommendedJobs);
+        filter === 'recommended' ? filteredJobs(recommendedJobs) :
+          filteredJobs(allJobs);
 
   const handlePostJob = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -175,6 +194,13 @@ const Jobs: React.FC<JobsProps> = ({ currentUser }) => {
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm sticky top-20">
           <div className="p-4 space-y-1">
             <button
+              onClick={() => setFilter('latest')}
+              className={`flex items-center justify-between w-full text-sm font-bold p-3 rounded-lg transition-all ${filter === 'latest' ? 'bg-agri-green/10 text-agri-green' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-3"><Layout className="w-5 h-5" /> Latest Jobs</div>
+              <ChevronRight className={`w-4 h-4 transition-transform ${filter === 'latest' ? 'rotate-90' : ''}`} />
+            </button>
+            <button
               onClick={() => setFilter('recommended')}
               className={`flex items-center justify-between w-full text-sm font-bold p-3 rounded-lg transition-all ${filter === 'recommended' ? 'bg-agri-green/10 text-agri-green' : 'text-slate-600 hover:bg-slate-50'}`}
             >
@@ -213,11 +239,14 @@ const Jobs: React.FC<JobsProps> = ({ currentUser }) => {
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
             <div>
               <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">
-                {filter === 'recommended' ? 'Agricultural Opportunities' :
-                  filter === 'my-jobs' ? 'My Listings' : 'Saved for Later'}
+                {filter === 'latest' ? 'Agricultural Opportunities' :
+                  filter === 'recommended' ? 'Recommended for You' :
+                    filter === 'my-jobs' ? 'My Listings' : 'Saved for Later'}
               </h2>
               <p className="text-xs text-slate-500 mt-1">
-                {filter === 'recommended' ? `Tailored to your crops (${currentUser.cropsGrown.join(', ') || 'Global'}) and location` : 'Manage your farming professional path'}
+                {filter === 'latest' ? 'All recent professional farm listings' :
+                  filter === 'recommended' ? `Tailored to your crops (${currentUser.cropsGrown.join(', ') || 'Global'}) and location` :
+                    'Manage your farming professional path'}
               </p>
             </div>
             <div className="relative group w-full sm:w-auto">
@@ -266,7 +295,10 @@ const Jobs: React.FC<JobsProps> = ({ currentUser }) => {
 
                     <div className="mt-4 flex items-center justify-between">
                       <span className="text-[10px] text-slate-400 font-medium">Posted {new Date(job.postedAt).toLocaleDateString()}</span>
-                      <button className="text-agri-green font-bold text-sm hover:underline flex items-center gap-1">
+                      <button
+                        onClick={() => setSelectedJob(job)}
+                        className="text-agri-green font-bold text-sm hover:underline flex items-center gap-1"
+                      >
                         View Details <ChevronRight className="w-4 h-4" />
                       </button>
                     </div>
@@ -396,6 +428,70 @@ const Jobs: React.FC<JobsProps> = ({ currentUser }) => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Job Details Modal */}
+      {selectedJob && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="relative h-32 bg-agri-green/10 flex items-center px-10">
+              <div className="w-20 h-20 bg-white rounded-2xl shadow-lg border border-slate-100 flex items-center justify-center -mb-20">
+                <Briefcase className="w-10 h-10 text-agri-green" />
+              </div>
+              <button
+                onClick={() => setSelectedJob(null)}
+                className="absolute top-4 right-4 bg-white/50 hover:bg-white p-2 rounded-full transition-all"
+              >
+                <X className="w-5 h-5 text-slate-800" />
+              </button>
+            </div>
+
+            <div className="pt-14 px-10 pb-8 space-y-6 overflow-y-auto max-h-[70vh]">
+              <div>
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight">{selectedJob.title}</h2>
+                <p className="text-agri-green font-bold text-lg">{selectedJob.company}</p>
+                <div className="flex flex-wrap gap-4 mt-3 text-sm text-slate-500 font-semibold">
+                  <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {selectedJob.location}</span>
+                  <span className="flex items-center gap-1.5"><Clock className="w-4 h-4" /> {selectedJob.type}</span>
+                  {selectedJob.salaryRange && <span className="flex items-center gap-1.5"><DollarSign className="w-4 h-4" /> {selectedJob.salaryRange}</span>}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-6">
+                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Job Description</h4>
+                <div className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap">
+                  {selectedJob.description}
+                </div>
+              </div>
+
+              {selectedJob.cropFocus && (
+                <div>
+                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Crop Focus</h4>
+                  <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider">{selectedJob.cropFocus}</span>
+                </div>
+              )}
+
+              <div className="flex gap-4 pt-4">
+                <button
+                  onClick={() => toggleSaveJob(selectedJob.id)}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all border-2 ${isJobSaved(selectedJob.id)
+                    ? 'bg-agri-green/5 border-agri-green text-agri-green'
+                    : 'border-slate-100 text-slate-500 hover:bg-slate-50'
+                    }`}
+                >
+                  <Bookmark className={`w-4 h-4 ${isJobSaved(selectedJob.id) ? 'fill-current' : ''}`} />
+                  {isJobSaved(selectedJob.id) ? 'Saved' : 'Save for Later'}
+                </button>
+                <button
+                  onClick={() => handleContactPoster(selectedJob)}
+                  className="flex-[2] bg-agri-green text-white py-3.5 px-8 rounded-xl font-black shadow-lg hover:bg-green-800 transition-all active:scale-[0.98] flex items-center justify-center gap-2 uppercase tracking-widest text-xs"
+                >
+                  Contact Farmer / Applied
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -21,7 +21,7 @@ import Messaging from './pages/Messaging';
 import Jobs from './pages/Jobs';
 import Auth from './pages/Auth';
 import Network from './pages/Network';
-import { Camera, Edit2, Check, X, Bell, User as UserIcon, Heart, MessageSquare, UserPlus, Briefcase, MapPin, Layout } from 'lucide-react';
+import { Camera, Edit2, Check, X, Bell, User as UserIcon, Heart, MessageSquare, UserPlus, Briefcase, MapPin, Layout, MessageCircle } from 'lucide-react';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -30,24 +30,39 @@ const App: React.FC = () => {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editForm, setEditForm] = useState<Partial<User>>({});
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [selectedChatUserId, setSelectedChatUserId] = useState<string | null>(null);
 
-  // Listen for auth state changes
+  // Listen for auth state changes and user profile updates
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    let userUnsubscribe: (() => void) | null = null;
+
+    const authUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // User is signed in, fetch their profile
-        const userDoc = await getDoc(doc(usersCollection, firebaseUser.uid));
-        if (userDoc.exists()) {
-          setCurrentUser({ ...userDoc.data(), id: firebaseUser.uid } as User);
-        }
+        // User is signed in, listen to their profile real-time
+        if (userUnsubscribe) userUnsubscribe();
+
+        userUnsubscribe = onSnapshot(doc(usersCollection, firebaseUser.uid), (snapshot) => {
+          if (snapshot.exists()) {
+            setCurrentUser({ ...snapshot.data(), id: firebaseUser.uid } as User);
+          }
+        }, (error) => {
+          console.error("Error listening to user doc:", error);
+        });
       } else {
         // User is signed out
+        if (userUnsubscribe) {
+          userUnsubscribe();
+          userUnsubscribe = null;
+        }
         setCurrentUser(null);
       }
       setIsLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      authUnsubscribe();
+      if (userUnsubscribe) userUnsubscribe();
+    };
   }, []);
 
   // Listen for notifications
@@ -59,8 +74,7 @@ const App: React.FC = () => {
 
     const q = query(
       notificationsCollection,
-      where('userId', '==', currentUser.id),
-      orderBy('timestamp', 'desc')
+      where('userId', '==', currentUser.id)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -68,11 +82,15 @@ const App: React.FC = () => {
       snapshot.forEach((doc) => {
         notifs.push({ ...doc.data(), id: doc.id } as Notification);
       });
+      // Sort in-memory to avoid index requirement
+      notifs.sort((a, b) => b.timestamp - a.timestamp);
       setNotifications(notifs);
+    }, (error) => {
+      console.error("Error listening to notifications:", error);
     });
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
@@ -89,7 +107,7 @@ const App: React.FC = () => {
 
     try {
       await updateDoc(doc(usersCollection, currentUser.id), editForm);
-      setCurrentUser({ ...currentUser, ...editForm } as User);
+      // Local state will be updated by the onSnapshot listener
       setIsEditingProfile(false);
     } catch (error) {
       console.error('Error updating profile:', error);
@@ -100,16 +118,29 @@ const App: React.FC = () => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, field: 'profilePhoto' | 'coverPhoto') => {
     const file = e.target.files?.[0];
     if (file) {
+      // Check file size (max 800KB for base64 to stay safely under Firestore 1MB limit)
+      if (file.size > 800 * 1024) {
+        alert("Image is too large. Please select an image smaller than 800KB.");
+        return;
+      }
+
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64 = reader.result as string;
         if (currentUser) {
           try {
             await updateDoc(doc(usersCollection, currentUser.id), { [field]: base64 });
-            setCurrentUser({ ...currentUser, [field]: base64 });
-          } catch (error) {
+            // Sync editForm to prevent overwrite when clicking 'Save' later
+            if (isEditingProfile) {
+              setEditForm(prev => ({ ...prev, [field]: base64 }));
+            }
+          } catch (error: any) {
             console.error('Error uploading image:', error);
-            alert('Failed to upload image. Please try again.');
+            if (error.code === 'permission-denied') {
+              alert('Permission denied. Please make sure you are logged in.');
+            } else {
+              alert('Failed to upload image. Document size might be exceeded or rules rejected it.');
+            }
           }
         }
       };
@@ -153,8 +184,8 @@ const App: React.FC = () => {
 
       <main className="container mx-auto pt-14">
         {activeTab === 'feed' && <Feed currentUser={currentUser} />}
-        {activeTab === 'messaging' && <Messaging currentUser={currentUser} />}
-        {activeTab === 'jobs' && <Jobs currentUser={currentUser} />}
+        {activeTab === 'messaging' && <Messaging currentUser={currentUser} selectedChatUserId={selectedChatUserId} setSelectedChatUserId={setSelectedChatUserId} />}
+        {activeTab === 'jobs' && <Jobs currentUser={currentUser} setActiveTab={setActiveTab} setSelectedChatUserId={setSelectedChatUserId} />}
         {activeTab === 'network' && <Network currentUser={currentUser} />}
 
         {activeTab === 'notifications' && (
@@ -165,7 +196,12 @@ const App: React.FC = () => {
             <div className="divide-y divide-slate-50">
               {notifications && notifications.length > 0 ? (
                 notifications.map((n) => (
-                  <NotificationItem key={n.id} notification={n} />
+                  <NotificationItem
+                    key={n.id}
+                    notification={n}
+                    setActiveTab={setActiveTab}
+                    setSelectedChatUserId={setSelectedChatUserId}
+                  />
                 ))
               ) : (
                 <div className="p-16 text-center text-slate-500">
@@ -343,8 +379,41 @@ const App: React.FC = () => {
   );
 };
 
-const NotificationItem: React.FC<{ notification: Notification }> = ({ notification }) => {
+const NotificationItem: React.FC<{
+  notification: Notification;
+  setActiveTab: (tab: string) => void;
+  setSelectedChatUserId: (id: string | null) => void;
+}> = ({ notification, setActiveTab, setSelectedChatUserId }) => {
   const [actor, setActor] = useState<User | null>(null);
+
+  const handleNotificationClick = async () => {
+    // Mark as read immediately when clicked
+    if (!notification.isRead) {
+      await updateDoc(doc(notificationsCollection, notification.id), { isRead: true });
+    }
+
+    // Direct user based on notification type
+    switch (notification.type) {
+      case 'message':
+        setSelectedChatUserId(notification.actorId);
+        setActiveTab('messaging');
+        break;
+      case 'connection_request':
+      case 'invitation':
+        setActiveTab('network');
+        break;
+      case 'like':
+      case 'comment':
+        setActiveTab('feed');
+        // In a more advanced version, we could scroll to the specific post using notification.linkId
+        break;
+      case 'job_alert':
+        setActiveTab('jobs');
+        break;
+      default:
+        setActiveTab('feed');
+    }
+  };
 
   useEffect(() => {
     const fetchActor = async () => {
@@ -362,6 +431,7 @@ const NotificationItem: React.FC<{ notification: Notification }> = ({ notificati
       case 'comment': return <MessageSquare className="w-5 h-5 text-blue-500 fill-blue-500" />;
       case 'connection_request': return <UserPlus className="w-5 h-5 text-green-500" />;
       case 'job_alert': return <Briefcase className="w-5 h-5 text-agri-green" />;
+      case 'message': return <MessageCircle className="w-5 h-5 text-blue-500" />;
       default: return <Bell className="w-5 h-5 text-slate-400" />;
     }
   };
@@ -369,7 +439,10 @@ const NotificationItem: React.FC<{ notification: Notification }> = ({ notificati
   if (!actor) return null;
 
   return (
-    <div className={`p-5 flex gap-5 items-start hover:bg-slate-50 transition-colors ${!notification.isRead ? 'bg-agri-green/5' : ''}`}>
+    <div
+      onClick={handleNotificationClick}
+      className={`p-5 flex gap-5 items-start cursor-pointer hover:bg-slate-50 transition-colors ${!notification.isRead ? 'bg-agri-green/5' : ''}`}
+    >
       <div className="relative">
         <img src={actor?.profilePhoto || 'https://via.placeholder.com/50'} className="w-14 h-14 rounded-full object-cover border border-slate-100 shadow-sm" alt="Actor" />
         <div className="absolute -bottom-1 -right-1 bg-white p-1 rounded-full shadow-md">

@@ -32,15 +32,14 @@ const PostCard: React.FC<PostCardProps> = ({ post, currentUser }) => {
   const [isLiked, setIsLiked] = useState(false);
   const [likeDocId, setLikeDocId] = useState<string | null>(null);
 
-  // Fetch post author
+  // Listen to post author real-time
   useEffect(() => {
-    const fetchAuthor = async () => {
-      const authorDoc = await getDoc(doc(usersCollection, post.authorId));
-      if (authorDoc.exists()) {
-        setAuthor({ ...authorDoc.data(), id: authorDoc.id } as User);
+    const unsubscribe = onSnapshot(doc(usersCollection, post.authorId), (doc) => {
+      if (doc.exists()) {
+        setAuthor({ ...doc.data(), id: doc.id } as User);
       }
-    };
-    fetchAuthor();
+    });
+    return () => unsubscribe();
   }, [post.authorId]);
 
   // Real-time comments listener
@@ -247,13 +246,12 @@ const CommentItem: React.FC<{ comment: Comment }> = ({ comment }) => {
   const [author, setAuthor] = useState<User | null>(null);
 
   useEffect(() => {
-    const fetchAuthor = async () => {
-      const authorDoc = await getDoc(doc(usersCollection, comment.authorId));
-      if (authorDoc.exists()) {
-        setAuthor({ ...authorDoc.data(), id: authorDoc.id } as User);
+    const unsubscribe = onSnapshot(doc(usersCollection, comment.authorId), (doc) => {
+      if (doc.exists()) {
+        setAuthor({ ...doc.data(), id: doc.id } as User);
       }
-    };
-    fetchAuthor();
+    });
+    return () => unsubscribe();
   }, [comment.authorId]);
 
   if (!author) return null;

@@ -17,51 +17,90 @@ import {
 } from '../db/firebase';
 import { User, Message, Connection, Notification } from '../types';
 
-const Messaging: React.FC<{ currentUser: User }> = ({ currentUser }) => {
+interface MessagingProps {
+  currentUser: User;
+  selectedChatUserId?: string | null;
+  setSelectedChatUserId?: (id: string | null) => void;
+}
+
+const Messaging: React.FC<MessagingProps> = ({ currentUser, selectedChatUserId, setSelectedChatUserId }) => {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [msgInput, setMsgInput] = useState('');
   const [acceptedConnections, setAcceptedConnections] = useState<User[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Fetch accepted connections
+  // Sync prop with local state
   useEffect(() => {
-    const fetchConnections = async () => {
-      // Query connections where current user is either requester or receiver and status is accepted
-      const q1 = query(connectionsCollection, where('requesterId', '==', currentUser.id), where('status', '==', 'accepted'));
-      const q2 = query(connectionsCollection, where('receiverId', '==', currentUser.id), where('status', '==', 'accepted'));
+    if (selectedChatUserId) {
+      const fetchSelectedUser = async () => {
+        const userDoc = await getDoc(doc(usersCollection, selectedChatUserId));
+        if (userDoc.exists()) {
+          setSelectedUser({ ...userDoc.data(), id: userDoc.id } as User);
+        }
+      };
+      fetchSelectedUser();
 
-      const [snapshot1, snapshot2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+      // Clear the prop once synced so it doesn't force re-selection
+      if (setSelectedChatUserId) {
+        setSelectedChatUserId(null);
+      }
+    }
+  }, [selectedChatUserId]);
 
-      const connectedUserIds: string[] = [];
-      snapshot1.forEach(doc => {
-        const conn = doc.data() as Connection;
-        connectedUserIds.push(conn.receiverId);
-      });
-      snapshot2.forEach(doc => {
-        const conn = doc.data() as Connection;
-        connectedUserIds.push(conn.requesterId);
-      });
+  // Fetch accepted connections and their data real-time
+  useEffect(() => {
+    const q1 = query(connectionsCollection, where('requesterId', '==', currentUser.id), where('status', '==', 'accepted'));
+    const q2 = query(connectionsCollection, where('receiverId', '==', currentUser.id), where('status', '==', 'accepted'));
 
-      // Remove duplicates
+    let connections1: any[] = [];
+    let connections2: any[] = [];
+    let usersUnsubscribe: (() => void) | null = null;
+
+    const syncUsers = (c1: any[], c2: any[]) => {
+      const connectedUserIds = [
+        ...c1.map(d => d.data().receiverId),
+        ...c2.map(d => d.data().requesterId)
+      ];
       const uniqueIds = [...new Set(connectedUserIds)];
 
-      // Fetch user data for all connected users
+      if (usersUnsubscribe) usersUnsubscribe();
+
       if (uniqueIds.length > 0) {
-        const users: User[] = [];
-        for (const userId of uniqueIds) {
-          const userDoc = await getDoc(doc(usersCollection, userId));
-          if (userDoc.exists()) {
-            users.push({ ...userDoc.data(), id: userDoc.id } as User);
-          }
-        }
-        setAcceptedConnections(users);
+        // Listen to all relevant users
+        // Note: For large numbers of users, we'd need a different approach
+        const usersQuery = query(usersCollection, where('__name__', 'in', uniqueIds.slice(0, 10))); // Firestore 'in' limit is 10
+        usersUnsubscribe = onSnapshot(usersQuery, (snapshot) => {
+          const users: User[] = [];
+          snapshot.forEach(doc => {
+            users.push({ ...doc.data(), id: doc.id } as User);
+          });
+          setAcceptedConnections(users);
+        });
       } else {
         setAcceptedConnections([]);
       }
     };
 
-    fetchConnections();
+    const unsub1 = onSnapshot(q1, (snap) => {
+      connections1 = snap.docs;
+      syncUsers(connections1, connections2);
+    }, (error) => {
+      console.error("Error listening to connections (q1):", error);
+    });
+
+    const unsub2 = onSnapshot(q2, (snap) => {
+      connections2 = snap.docs;
+      syncUsers(connections1, connections2);
+    }, (error) => {
+      console.error("Error listening to connections (q2):", error);
+    });
+
+    return () => {
+      unsub1();
+      unsub2();
+      if (usersUnsubscribe) usersUnsubscribe();
+    };
   }, [currentUser.id]);
 
   // Real-time messages listener for selected conversation
@@ -71,40 +110,44 @@ const Messaging: React.FC<{ currentUser: User }> = ({ currentUser }) => {
       return;
     }
 
-    // Query messages where:
-    // (senderId == currentUser && receiverId == selectedUser) OR
-    // (senderId == selectedUser && receiverId == currentUser)
     const q1 = query(
       messagesCollection,
       where('senderId', '==', currentUser.id),
-      where('receiverId', '==', selectedUser.id),
-      orderBy('timestamp', 'asc')
+      where('receiverId', '==', selectedUser.id)
     );
 
     const q2 = query(
       messagesCollection,
       where('senderId', '==', selectedUser.id),
-      where('receiverId', '==', currentUser.id),
-      orderBy('timestamp', 'asc')
+      where('receiverId', '==', currentUser.id)
     );
 
-    const unsubscribe1 = onSnapshot(q1, async (snapshot1) => {
-      const snapshot2 = await getDocs(q2);
+    let messages1: Message[] = [];
+    let messages2: Message[] = [];
 
-      const allMessages: Message[] = [];
-      snapshot1.forEach(doc => {
-        allMessages.push({ ...doc.data(), id: doc.id } as Message);
-      });
-      snapshot2.forEach(doc => {
-        allMessages.push({ ...doc.data(), id: doc.id } as Message);
-      });
-
-      // Sort by timestamp
-      allMessages.sort((a, b) => a.timestamp - b.timestamp);
+    const handleMessagesUpdate = () => {
+      const allMessages = [...messages1, ...messages2].sort((a, b) => a.timestamp - b.timestamp);
       setMessages(allMessages);
+    };
+
+    const unsubscribe1 = onSnapshot(q1, (snapshot) => {
+      messages1 = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Message));
+      handleMessagesUpdate();
+    }, (error) => {
+      console.error("Error listening to messages (q1):", error);
     });
 
-    return () => unsubscribe1();
+    const unsubscribe2 = onSnapshot(q2, (snapshot) => {
+      messages2 = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Message));
+      handleMessagesUpdate();
+    }, (error) => {
+      console.error("Error listening to messages (q2):", error);
+    });
+
+    return () => {
+      unsubscribe1();
+      unsubscribe2();
+    };
   }, [selectedUser, currentUser.id]);
 
   useEffect(() => {
@@ -118,26 +161,8 @@ const Messaging: React.FC<{ currentUser: User }> = ({ currentUser }) => {
     if (!msgInput.trim() || !selectedUser) return;
 
     try {
-      // Safety check: ensure connection is still accepted before sending
-      const q1 = query(
-        connectionsCollection,
-        where('requesterId', '==', currentUser.id),
-        where('receiverId', '==', selectedUser.id),
-        where('status', '==', 'accepted')
-      );
-      const q2 = query(
-        connectionsCollection,
-        where('requesterId', '==', selectedUser.id),
-        where('receiverId', '==', currentUser.id),
-        where('status', '==', 'accepted')
-      );
-
-      const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
-
-      if (snap1.empty && snap2.empty) {
-        alert("You can only message users with an accepted connection.");
-        return;
-      }
+      // Note: We've relaxed the connection requirement to allow 'First Contact' for jobs/networking.
+      // In a production app, you might want to add a rate limit or a 'Request to Chat' step here.
 
       const messageRef = doc(messagesCollection, crypto.randomUUID());
       const newMessage: Message = {
@@ -186,30 +211,39 @@ const Messaging: React.FC<{ currentUser: User }> = ({ currentUser }) => {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
-          {acceptedConnections && acceptedConnections.length > 0 ? (
-            acceptedConnections.map(user => (
-              <div
-                key={user.id}
-                onClick={() => setSelectedUser(user)}
-                className={`p-4 flex gap-3 cursor-pointer transition-all border-l-4 ${selectedUser?.id === user.id ? 'bg-agri-green/5 border-agri-green' : 'border-transparent hover:bg-slate-50'
-                  }`}
-              >
-                <img src={user.profilePhoto || 'https://via.placeholder.com/150'} className="w-12 h-12 rounded-full border border-slate-100 object-cover" alt={user.name} />
-                <div className="flex-1 overflow-hidden">
-                  <div className="flex justify-between items-start">
-                    <h3 className="font-bold text-sm text-slate-800 truncate">{user.name}</h3>
+          {(() => {
+            const allListUsers = [...acceptedConnections];
+            if (selectedUser && !allListUsers.some(u => u.id === selectedUser.id)) {
+              allListUsers.unshift(selectedUser);
+            }
+
+            if (allListUsers.length > 0) {
+              return allListUsers.map(user => (
+                <div
+                  key={user.id}
+                  onClick={() => setSelectedUser(user)}
+                  className={`p-4 flex gap-3 cursor-pointer transition-all border-l-4 ${selectedUser?.id === user.id ? 'bg-agri-green/5 border-agri-green' : 'border-transparent hover:bg-slate-50'
+                    }`}
+                >
+                  <img src={user.profilePhoto || 'https://via.placeholder.com/150'} className="w-12 h-12 rounded-full border border-slate-100 object-cover" alt={user.name} />
+                  <div className="flex-1 overflow-hidden">
+                    <div className="flex justify-between items-start">
+                      <h3 className="font-bold text-sm text-slate-800 truncate">{user.name}</h3>
+                    </div>
+                    <p className="text-[11px] text-slate-500 truncate mt-0.5">{user.headline}</p>
                   </div>
-                  <p className="text-[11px] text-slate-500 truncate mt-0.5">{user.headline}</p>
                 </div>
-              </div>
-            ))
-          ) : (
-            <div className="p-10 text-center flex flex-col items-center">
-              <ShieldAlert className="w-12 h-12 text-slate-200 mb-3" />
-              <p className="text-sm font-bold text-slate-500">No active conversations</p>
-              <p className="text-[11px] text-slate-400 mt-2">Connect with farmers to start chatting.</p>
-            </div>
-          )}
+              ));
+            } else {
+              return (
+                <div className="p-10 text-center flex flex-col items-center">
+                  <ShieldAlert className="w-12 h-12 text-slate-200 mb-3" />
+                  <p className="text-sm font-bold text-slate-500">No active conversations</p>
+                  <p className="text-[11px] text-slate-400 mt-2">Connect with farmers to start chatting.</p>
+                </div>
+              );
+            }
+          })()}
         </div>
       </div>
 
@@ -243,8 +277,8 @@ const Messaging: React.FC<{ currentUser: User }> = ({ currentUser }) => {
               {messages?.map(msg => (
                 <div key={msg.id} className={`flex ${msg.senderId === currentUser.id ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm shadow-sm transition-all animate-in zoom-in-95 duration-200 ${msg.senderId === currentUser.id
-                      ? 'bg-agri-green text-white rounded-br-none'
-                      : 'bg-white text-slate-800 rounded-bl-none border border-slate-100'
+                    ? 'bg-agri-green text-white rounded-br-none'
+                    : 'bg-white text-slate-800 rounded-bl-none border border-slate-100'
                     }`}>
                     {msg.content}
                     <p className={`text-[9px] mt-1.5 font-medium ${msg.senderId === currentUser.id ? 'text-white/70 text-right' : 'text-slate-400'}`}>
