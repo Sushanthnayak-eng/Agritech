@@ -53,6 +53,7 @@ export interface Message {
   senderId: string;
   receiverId: string;
   content: string;
+  mediaUrl?: string; // Add this
   timestamp: number;
   isRead: boolean;
 }

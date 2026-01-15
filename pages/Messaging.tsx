@@ -13,9 +13,11 @@ import {
   where,
   orderBy,
   onSnapshot,
-  getDocs
+  getDocs,
+  uploadImage
 } from '../db/firebase';
 import { User, Message, Connection, Notification } from '../types';
+import { X, CheckCircle2 } from 'lucide-react';
 
 interface MessagingProps {
   currentUser: User;
@@ -28,7 +30,14 @@ const Messaging: React.FC<MessagingProps> = ({ currentUser, selectedChatUserId, 
   const [msgInput, setMsgInput] = useState('');
   const [acceptedConnections, setAcceptedConnections] = useState<User[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const emojis = ['🌾', '🚜', '🌱', '🍎', '🐄', '🥛', '🥕', '🥔', '🍅', '🐔', '🍯', '🌿', '💧', '☀️', '🌍', '🤝', '😊', '👍', '🙏', '💯', '🔥', '✨', '👏', '✅', '📍', '🚚', '📊', '💰', '🕙', '📩'];
 
   // Sync prop with local state
   useEffect(() => {
@@ -156,13 +165,36 @@ const Messaging: React.FC<MessagingProps> = ({ currentUser, selectedChatUserId, 
     }
   }, [messages]);
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedImage(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const addEmoji = (emoji: string) => {
+    setMsgInput(prev => prev + emoji);
+    setShowEmojiPicker(false);
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!msgInput.trim() || !selectedUser) return;
+    if (!selectedUser || (!msgInput.trim() && !selectedImage)) return;
 
     try {
-      // Note: We've relaxed the connection requirement to allow 'First Contact' for jobs/networking.
-      // In a production app, you might want to add a rate limit or a 'Request to Chat' step here.
+      let mediaUrl = '';
+      if (selectedImage) {
+        setIsUploading(true);
+        // Using Base64 to bypass the Firebase Storage 'Upgrade' requirement
+        const { fileToBase64 } = await import('../db/firebase');
+        mediaUrl = await fileToBase64(selectedImage);
+        setIsUploading(false);
+      }
 
       const messageRef = doc(messagesCollection, crypto.randomUUID());
       const newMessage: Message = {
@@ -170,11 +202,14 @@ const Messaging: React.FC<MessagingProps> = ({ currentUser, selectedChatUserId, 
         senderId: currentUser.id,
         receiverId: selectedUser.id,
         content: msgInput,
+        mediaUrl: mediaUrl || undefined,
         timestamp: Date.now(),
         isRead: false
       };
 
       await setDoc(messageRef, newMessage);
+      setSelectedImage(null);
+      setImagePreview(null);
 
       // Add notification for the recipient
       const notifRef = doc(notificationsCollection, crypto.randomUUID());
@@ -192,6 +227,7 @@ const Messaging: React.FC<MessagingProps> = ({ currentUser, selectedChatUserId, 
       setMsgInput('');
     } catch (error) {
       console.error('Error sending message:', error);
+      setIsUploading(false);
       alert('Failed to send message. Please try again.');
     }
   };
@@ -264,32 +300,57 @@ const Messaging: React.FC<MessagingProps> = ({ currentUser, selectedChatUserId, 
               </div>
             </div>
 
-            <div ref={scrollRef} className="flex-1 p-6 overflow-y-auto space-y-4 bg-[#f9f9f9]">
-              <div className="flex flex-col items-center py-8 mb-8">
+            <div ref={scrollRef} className="flex-1 p-6 overflow-y-auto space-y-4 bg-[#efeae2] relative" style={{ backgroundImage: 'radial-gradient(#d1d1d1 0.5px, transparent 0.5px)', backgroundSize: '20px 20px' }}>
+              <div className="flex flex-col items-center py-8 mb-8 relative z-10">
                 <img src={selectedUser.profilePhoto || 'https://via.placeholder.com/150'} className="w-24 h-24 rounded-full mb-3 border-4 border-white shadow-md object-cover" alt={selectedUser.name} />
                 <h3 className="font-bold text-lg text-slate-800">{selectedUser.name}</h3>
                 <p className="text-xs text-slate-500 text-center px-16 leading-relaxed">{selectedUser.headline}</p>
-                <div className="mt-4 flex gap-2">
-                  <button className="text-[10px] font-bold text-agri-green bg-white border border-slate-200 px-3 py-1 rounded-full shadow-sm hover:bg-slate-50 transition-colors">View Profile</button>
-                </div>
               </div>
 
               {messages?.map(msg => (
-                <div key={msg.id} className={`flex ${msg.senderId === currentUser.id ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm shadow-sm transition-all animate-in zoom-in-95 duration-200 ${msg.senderId === currentUser.id
-                    ? 'bg-agri-green text-white rounded-br-none'
-                    : 'bg-white text-slate-800 rounded-bl-none border border-slate-100'
+                <div key={msg.id} className={`flex ${msg.senderId === currentUser.id ? 'justify-end' : 'justify-start'} relative z-10`}>
+                  <div className={`max-w-[75%] rounded-xl px-3 py-1.5 text-sm shadow-sm transition-all animate-in zoom-in-95 duration-200 ${msg.senderId === currentUser.id
+                    ? 'bg-[#dcf8c6] text-slate-800 rounded-tr-none'
+                    : 'bg-white text-slate-800 rounded-tl-none border border-slate-100'
                     }`}>
-                    {msg.content}
-                    <p className={`text-[9px] mt-1.5 font-medium ${msg.senderId === currentUser.id ? 'text-white/70 text-right' : 'text-slate-400'}`}>
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
+                    {msg.mediaUrl && (
+                      <div className="mb-1 rounded-lg overflow-hidden border border-black/5">
+                        <img src={msg.mediaUrl} className="w-full max-w-sm cursor-pointer hover:opacity-95" alt="Message attachment" />
+                      </div>
+                    )}
+                    <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                    <div className="flex items-center justify-end gap-1 mt-1">
+                      <span className="text-[10px] text-slate-400">
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {msg.senderId === currentUser.id && (
+                        <CheckCircle2 className="w-3 h-3 text-blue-400" />
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
+              {isUploading && (
+                <div className="flex justify-end">
+                  <div className="bg-agri-green/10 text-agri-green text-xs px-4 py-2 rounded-2xl animate-pulse flex items-center gap-2">
+                    <div className="w-2 h-2 bg-agri-green rounded-full animate-bounce"></div> Uploading image...
+                  </div>
+                </div>
+              )}
             </div>
 
             <form onSubmit={handleSendMessage} className="p-4 border-t border-slate-100 bg-white">
+              {imagePreview && (
+                <div className="mb-3 relative inline-block">
+                  <img src={imagePreview} className="h-20 w-20 object-cover rounded-lg border border-slate-200" alt="Preview" />
+                  <button
+                    onClick={() => { setSelectedImage(null); setImagePreview(null); }}
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
               <div className="bg-slate-50 rounded-2xl p-2 border border-slate-200 focus-within:border-agri-green focus-within:ring-1 focus-within:ring-agri-green/20 transition-all">
                 <textarea
                   value={msgInput}
@@ -299,16 +360,48 @@ const Messaging: React.FC<MessagingProps> = ({ currentUser, selectedChatUserId, 
                   className="w-full bg-transparent outline-none text-sm px-3 py-1.5 resize-none placeholder:text-slate-400"
                 />
                 <div className="flex items-center justify-between mt-1 px-2 border-t border-slate-200 pt-2">
-                  <div className="flex gap-4 text-slate-400">
-                    <ImageIcon className="w-5 h-5 cursor-pointer hover:text-agri-green transition-colors" />
-                    <Smile className="w-5 h-5 cursor-pointer hover:text-agri-green transition-colors" />
+                  <div className="flex gap-4 text-slate-400 relative">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleImageSelect}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    <ImageIcon
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-5 h-5 cursor-pointer hover:text-agri-green transition-colors"
+                    />
+                    <div className="relative">
+                      <Smile
+                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                        className={`w-5 h-5 cursor-pointer hover:text-agri-green transition-colors ${showEmojiPicker ? 'text-agri-green' : ''}`}
+                      />
+                      {showEmojiPicker && (
+                        <div className="absolute bottom-8 left-0 bg-white border border-slate-200 rounded-xl shadow-xl p-3 grid grid-cols-6 gap-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200 w-64">
+                          {emojis.map(e => (
+                            <button
+                              key={e}
+                              onClick={() => addEmoji(e)}
+                              type="button"
+                              className="text-2xl hover:bg-slate-100 p-1 rounded transition-colors"
+                            >
+                              {e}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <button
                     type="submit"
-                    disabled={!msgInput.trim()}
+                    disabled={(!msgInput.trim() && !selectedImage) || isUploading}
                     className="bg-agri-green text-white px-6 py-1.5 rounded-full text-xs font-black disabled:opacity-40 transition-all shadow-md active:scale-95 flex items-center gap-2"
                   >
-                    <Send className="w-3 h-3" /> Send
+                    {isUploading ? (
+                      <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    ) : <Send className="w-3 h-3" />}
+                    {isUploading ? 'Sending...' : 'Send'}
                   </button>
                 </div>
               </div>

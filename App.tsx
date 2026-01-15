@@ -22,6 +22,7 @@ import Jobs from './pages/Jobs';
 import Auth from './pages/Auth';
 import Network from './pages/Network';
 import SearchResults from './pages/SearchResults';
+import BhoomiChat from './components/BhoomiChat';
 import { Camera, Edit2, Check, X, Bell, User as UserIcon, Heart, MessageSquare, UserPlus, Briefcase, MapPin, Layout, MessageCircle, Repeat } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -385,6 +386,7 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+      <BhoomiChat currentUser={currentUser} />
     </div>
   );
 };

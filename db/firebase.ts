@@ -77,6 +77,7 @@ export const fileToBase64 = (file: File): Promise<string> => {
 // Helper function to upload image to Firebase Storage
 export const uploadImage = async (file: File, path: string): Promise<string> => {
   const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file);
+  // Adding contentType metadata helps with CORS and browser rendering
+  await uploadBytes(storageRef, file, { contentType: file.type });
   return await getDownloadURL(storageRef);
 };
