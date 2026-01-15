@@ -19,8 +19,8 @@ const BhoomiChat: React.FC<BhoomiChatProps> = ({ currentUser }) => {
     const [isRecording, setIsRecording] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
 
-    // API URL - Points to your friend's laptop on the same Wi-Fi
-    const API_BASE_URL = 'http://192.168.1.117:8000';
+    // API URL - Connected to your friend's laptop via environment variable
+    const API_BASE_URL = import.meta.env.VITE_BHOOMI_API_URL;
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -39,10 +39,12 @@ const BhoomiChat: React.FC<BhoomiChatProps> = ({ currentUser }) => {
         try {
             const response = await fetch(`${API_BASE_URL}/chat`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': '69420' // Bypasses the ngrok landing page
+                },
                 body: JSON.stringify({
-                    query: text,
-                    user_id: currentUser.id
+                    message: text
                 }),
             });
 

@@ -22,6 +22,7 @@ import Jobs from './pages/Jobs';
 import Auth from './pages/Auth';
 import Network from './pages/Network';
 import SearchResults from './pages/SearchResults';
+import Quiz from './pages/Quiz';
 import BhoomiChat from './components/BhoomiChat';
 import { Camera, Edit2, Check, X, Bell, User as UserIcon, Heart, MessageSquare, UserPlus, Briefcase, MapPin, Layout, MessageCircle, Repeat } from 'lucide-react';
 
@@ -198,6 +199,7 @@ const App: React.FC = () => {
         {activeTab === 'jobs' && <Jobs currentUser={currentUser} setActiveTab={setActiveTab} setSelectedChatUserId={setSelectedChatUserId} />}
         {activeTab === 'network' && <Network currentUser={currentUser} />}
         {activeTab === 'search' && <SearchResults searchQuery={searchQuery} currentUser={currentUser} />}
+        {activeTab === 'quiz' && <Quiz />}
 
         {activeTab === 'notifications' && (
           <div className="max-w-2xl mx-auto mt-6 bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">

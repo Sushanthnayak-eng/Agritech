@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Home, Users, Briefcase, MessageSquare, Bell, User, Search } from 'lucide-react';
+import { Home, Users, Briefcase, MessageSquare, Bell, User, Search, Trophy } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: string;
@@ -14,6 +14,7 @@ const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, currentUser, s
   const navItems = [
     { id: 'feed', icon: Home, label: 'Home' },
     { id: 'network', icon: Users, label: 'My Network' },
+    { id: 'quiz', icon: Trophy, label: 'Quiz' },
     { id: 'jobs', icon: Briefcase, label: 'Jobs' },
     { id: 'messaging', icon: MessageSquare, label: 'Messaging' },
     { id: 'notifications', icon: Bell, label: 'Notifications' },
